@@ -1,0 +1,26 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# --- Virtual environments ---
+venv/
+env/
+.venv/
+
+# --- Secrets ---
+fastapi_backend/.env
+admin_panel/.env
+
+# --- FastAPI local SQLite (if used instead of MySQL) ---
+fastapi_backend/*.db
+
+# --- Django ---
+admin_panel/staticfiles/
+admin_panel/media/
+db.sqlite3
+
+# --- OS / editor ---
+.DS_Store
+.vscode/
+*.log

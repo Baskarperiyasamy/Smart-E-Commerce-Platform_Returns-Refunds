@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>My Orders · Smart E-Commerce</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+<style>
+  .order-card {
+    margin-top: 20px;
+    max-width: 680px;
+  }
+
+  .order-card .order-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .order-card .order-total {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 17px;
+    color: var(--gold);
+    white-space: nowrap;
+  }
+
+  .order-card .order-date {
+    margin: 2px 0 14px;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+
+  .order-status-line {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+
+  .order-status-line strong { color: var(--text); }
+
+  .order-items {
+    display: none;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+
+  .order-items.open { display: block; }
+
+  .order-items .items-heading {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+
+  .order-items .item-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 14px;
+  }
+
+  .order-items .item-row .item-name { color: var(--text); }
+  .order-items .item-row .item-qty { color: var(--text-muted); font-size: 12px; display: block; }
+  .order-items .item-row .item-price { color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
+
+  .order-bottom-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+
+  .status-chip {
+    display: inline-block;
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: var(--font-mono);
+  }
+
+  .chip-pending { background: rgba(240, 165, 49, 0.16); color: #f0a531; border: 1px solid rgba(240, 165, 49, 0.4); }
+  .chip-approved { background: rgba(52, 211, 153, 0.14); color: var(--green); border: 1px solid rgba(52, 211, 153, 0.4); }
+  .chip-rejected { background: rgba(251, 113, 133, 0.14); color: var(--rose); border: 1px solid rgba(251, 113, 133, 0.4); }
+  .chip-return_requested { background: rgba(240, 165, 49, 0.16); color: #f0a531; border: 1px solid rgba(240, 165, 49, 0.4); }
+
+  .view-details-btn {
+    background: #2f6fed;
+    color: #fff;
+    border: none;
+    padding: 9px 18px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: var(--font-display);
+    cursor: pointer;
+  }
+
+  .view-details-btn:hover { background: #4880f2; }
+</style>
+</head>
+<body>
+
+<div class="navbar">
+  <div class="brand">Smart<span>Cart</span></div>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="products.html">Products</a>
+    <a href="cart.html">Cart</a>
+    <a href="orders.html">My Orders</a>
+    <a href="notifications.html" class="nav-bell" title="Notifications">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+      </svg>
+      <span class="bell-badge" id="bellBadge" style="display:none;">0</span>
+    </a>
+    <a href="database.html">Database</a>
+  </nav>
+  <div id="userBadge"></div>
+</div>
+
+<div class="container">
+  <h1>My Orders</h1>
+  <p style="color:var(--text-muted);">View your order history and payment status.</p>
+  <div id="ordersArea"></div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+  const statusColors = {
+    pending: "var(--text-muted)",
+    paid: "var(--green, #5fae7c)",
+    shipped: "#6fb8d6",
+    delivered: "var(--green, #5fae7c)",
+    return_requested: "#f0a531",
+    cancelled: "var(--rose, #d1495b)",
+    failed: "var(--rose, #d1495b)",
+  };
+
+  const statusLabels = {
+    return_requested: "Return Requested",
+  };
+
+  function statusLabel(s) {
+    return statusLabels[s] || (s.charAt(0).toUpperCase() + s.slice(1));
+  }
+
+  // Day 5: Customer Experience & Insights Module — Return/Refund requests.
+  // Kept in sync with RETURN_WINDOW_DAYS in fastapi_backend/app/routers/returns.py.
+  const RETURN_WINDOW_DAYS = 7;
+
+  function canRequestReturn(order) {
+    if (order.order_status !== "delivered") return false;
+    if (order.return_request) return false;
+    const deliveredAt = new Date(order.updated_at);
+    const deadline = new Date(deliveredAt.getTime() + RETURN_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    return new Date() <= deadline;
+  }
+
+  function formatMoney(n) {
+    return "₹" + n.toFixed(2);
+  }
+
+  function bottomRow(order) {
+    let left = "";
+
+    if (order.return_request) {
+      const r = order.return_request;
+      const chipClass = `chip-${r.status}`;
+      left = `<span class="status-chip ${chipClass}">${statusLabel(r.status)}</span>`;
+    } else if (order.order_status === "return_requested") {
+      left = `<span class="status-chip chip-return_requested">Return Requested</span>`;
+    } else if (canRequestReturn(order)) {
+      left = `<button class="btn secondary" style="width:auto; padding:8px 16px;" onclick="openReturnForm('${order.id}')">Request Return</button>`;
+    } else {
+      left = `<span></span>`;
+    }
+
+    return `
+      <div class="order-bottom-row">
+        <div>${left}</div>
+        <button class="view-details-btn" onclick="toggleDetails('${order.id}')" id="detailsBtn-${order.id}">View Order Details</button>
+      </div>
+      ${order.return_request ? `<p style="margin:8px 0 0; font-size:13px; color:var(--text-muted);">Reason: ${order.return_request.reason}${order.return_request.comment ? ` — "${order.return_request.comment}"` : ""}</p>` : ""}
+      <div id="returnForm-${order.id}" style="display:none; margin-top:12px;"></div>
+    `;
+  }
+
+  function orderCard(order) {
+    return `
+      <div class="card order-card">
+        <div class="order-top">
+          <h3 style="margin:0;">Order #${order.id.slice(0, 8)}</h3>
+          <span class="order-total">${formatMoney(order.total_amount)}</span>
+        </div>
+        <p class="order-date">${new Date(order.created_at).toLocaleString()}</p>
+
+        <div class="order-status-line">
+          <span>Payment: <strong style="color:${statusColors[order.payment_status] || 'inherit'};">${statusLabel(order.payment_status)}</strong></span>
+          <span>Order: <strong style="color:${statusColors[order.order_status] || 'inherit'};">${statusLabel(order.order_status)}</strong></span>
+        </div>
+
+        <div class="order-items" id="items-${order.id}">
+          <div class="items-heading">Items</div>
+          ${order.items.map(i => `
+            <div class="item-row">
+              <span>
+                <span class="item-name">${i.product_name}</span>
+                <span class="item-qty">Quantity: ${i.quantity}</span>
+              </span>
+              <span class="item-price">${formatMoney(i.unit_price)} × ${i.quantity} = ${formatMoney(i.item_total)}</span>
+            </div>
+          `).join("")}
+        </div>
+
+        ${bottomRow(order)}
+      </div>
+    `;
+  }
+
+  async function loadOrders() {
+    const area = document.getElementById("ordersArea");
+    if (!Auth.isLoggedIn()) {
+      area.innerHTML = `<div class="empty-state">You need to <a href="login.html">log in</a> to view your orders.</div>`;
+      return;
+    }
+
+    try {
+      const orders = await OrdersAPI.mine();
+      if (!orders.length) {
+        area.innerHTML = `<div class="empty-state">No orders yet. <a href="products.html">Start shopping</a>.</div>`;
+        return;
+      }
+
+      area.innerHTML = orders.map(orderCard).join("");
+    } catch (err) {
+      area.innerHTML = `<div class="empty-state">Couldn't load orders: ${err.message}</div>`;
+    }
+  }
+
+  function toggleDetails(orderId) {
+    const box = document.getElementById(`items-${orderId}`);
+    const btn = document.getElementById(`detailsBtn-${orderId}`);
+    const open = box.classList.toggle("open");
+    btn.textContent = open ? "Hide Order Details" : "View Order Details";
+  }
+
+  function openReturnForm(orderId) {
+    const box = document.getElementById(`returnForm-${orderId}`);
+    box.style.display = "block";
+    box.innerHTML = `
+      <div class="field">
+        <label for="reason-${orderId}">Reason for return</label>
+        <select id="reason-${orderId}" style="width:100%; padding:10px 14px; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text);">
+          <option value="Damaged item">Damaged item</option>
+          <option value="Wrong item received">Wrong item received</option>
+          <option value="No longer needed">No longer needed</option>
+          <option value="Item doesn't match description">Item doesn't match description</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="comment-${orderId}">Additional comment (optional)</label>
+        <textarea id="comment-${orderId}" rows="2" style="width:100%; padding:10px 14px; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text); font-family:var(--font-body);"></textarea>
+      </div>
+      <div id="returnError-${orderId}" class="alert error" style="display:none;"></div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn" style="width:auto; padding:8px 18px;" onclick="submitReturn('${orderId}')">Submit Return Request</button>
+        <button class="btn secondary" style="width:auto; padding:8px 18px;" onclick="closeReturnForm('${orderId}')">Cancel</button>
+      </div>
+    `;
+  }
+
+  function closeReturnForm(orderId) {
+    const box = document.getElementById(`returnForm-${orderId}`);
+    box.style.display = "none";
+    box.innerHTML = "";
+  }
+
+  async function submitReturn(orderId) {
+    const reason = document.getElementById(`reason-${orderId}`).value;
+    const comment = document.getElementById(`comment-${orderId}`).value.trim();
+    const errBox = document.getElementById(`returnError-${orderId}`);
+    errBox.style.display = "none";
+
+    try {
+      await ReturnsAPI.request(orderId, reason, comment);
+      loadOrders();
+    } catch (err) {
+      errBox.textContent = err.message;
+      errBox.style.display = "block";
+    }
+  }
+
+  loadOrders();
+</script>
+</body>
+</html>

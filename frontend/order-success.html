@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Order Confirmed · Smart E-Commerce</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<div class="navbar">
+  <div class="brand">Smart<span>Cart</span></div>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="products.html">Products</a>
+    <a href="cart.html">Cart</a>
+    <a href="orders.html">My Orders</a>
+    <a href="notifications.html" class="nav-bell" title="Notifications">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+      </svg>
+      <span class="bell-badge" id="bellBadge" style="display:none;">0</span>
+    </a>
+    <a href="database.html">Database</a>
+  </nav>
+  <div id="userBadge"></div>
+</div>
+
+<div class="container" style="max-width:640px;">
+  <div id="statusArea" class="empty-state">Checking your payment status…</div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+  async function checkStatus() {
+    const area = document.getElementById("statusArea");
+
+    if (!Auth.isLoggedIn()) {
+      area.innerHTML = `Please <a href="login.html">log in</a> to view your order.`;
+      return;
+    }
+
+    try {
+      const orders = await OrdersAPI.mine();
+      if (!orders.length) {
+        area.innerHTML = `No orders found yet.`;
+        return;
+      }
+      const order = orders[0]; // most recent
+
+      const statusColor = order.payment_status === "paid" ? "var(--green, #5fae7c)" : "var(--rose, #d1495b)";
+
+      area.innerHTML = `
+        <h2 style="text-align:center;">${order.payment_status === "paid" ? "Payment successful 🎉" : "Payment pending…"}</h2>
+        <p style="text-align:center; color:${statusColor}; font-weight:600;">
+          Order #${order.id.slice(0, 8)} — ${order.payment_status}
+        </p>
+        <div class="card" style="margin-top:24px;">
+          ${order.items.map(i => `
+            <div style="display:flex; justify-content:space-between; padding:6px 0;">
+              <span>${i.product_name} × ${i.quantity}</span>
+              <span>$${i.item_total.toFixed(2)}</span>
+            </div>`).join("")}
+          <div style="border-top:1px solid var(--border); margin-top:10px; padding-top:10px; display:flex; justify-content:space-between;">
+            <strong>Total</strong><strong>$${order.total_amount.toFixed(2)}</strong>
+          </div>
+        </div>
+        <p style="text-align:center; margin-top:20px;">
+          <a href="orders.html">View all orders</a> · <a href="products.html">Continue shopping</a>
+        </p>
+        ${order.payment_status !== "paid" ? `<p style="text-align:center; color:var(--text-muted); font-size:13px;">
+          If you just paid, this can take a few seconds to update — refresh the page,
+          or check that your Stripe webhook is running (<code>stripe listen --forward-to localhost:8000/webhooks/stripe</code>).
+        </p>` : ""}
+      `;
+    } catch (err) {
+      area.innerHTML = `Couldn't load order status: ${err.message}`;
+    }
+  }
+
+  checkStatus();
+</script>
+</body>
+</html>

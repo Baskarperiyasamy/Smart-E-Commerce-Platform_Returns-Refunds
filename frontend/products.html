@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Products · Smart E-Commerce</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<div class="navbar">
+  <div class="brand">Smart<span>Cart</span></div>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="products.html">Products</a>
+    <a href="cart.html">Cart</a>
+    <a href="orders.html">My Orders</a>
+    <a href="notifications.html" class="nav-bell" title="Notifications">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+      </svg>
+      <span class="bell-badge" id="bellBadge" style="display:none;">0</span>
+    </a>
+    <a href="database.html">Database</a>
+  </nav>
+  <div id="userBadge"></div>
+</div>
+
+<div class="container">
+  <h1>Products</h1>
+  <p style="color:var(--text-muted);">Browse the catalog. Log in as a customer to add items to your cart.</p>
+
+  <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:20px;">
+    <select id="categoryFilter" style="padding:10px 14px; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text);">
+      <option value="">All categories</option>
+    </select>
+    <select id="sortFilter" style="padding:10px 14px; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text);">
+      <option value="">Sort: default</option>
+      <option value="price-asc">Price: low to high</option>
+      <option value="price-desc">Price: high to low</option>
+      <option value="popularity-desc">Most popular</option>
+    </select>
+    <label style="display:flex; align-items:center; gap:6px; color:var(--text-muted); font-size:14px;">
+      <input type="checkbox" id="inStockFilter" /> In stock only
+    </label>
+  </div>
+
+  <div id="grid" class="grid"></div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+  const categoryFilter = document.getElementById("categoryFilter");
+  const sortFilter = document.getElementById("sortFilter");
+  const inStockFilter = document.getElementById("inStockFilter");
+
+  function buildQuery() {
+    const params = new URLSearchParams();
+    if (categoryFilter.value) params.set("category", categoryFilter.value);
+    if (inStockFilter.checked) params.set("in_stock", "true");
+    const sort = sortFilter.value;
+    if (sort === "price-asc") { params.set("sort_by", "price"); params.set("order", "asc"); }
+    if (sort === "price-desc") { params.set("sort_by", "price"); params.set("order", "desc"); }
+    if (sort === "popularity-desc") { params.set("sort_by", "popularity"); params.set("order", "desc"); }
+    return params.toString();
+  }
+
+  async function loadCategories() {
+    try {
+      const products = await ProductsAPI.list();
+      const categories = [...new Set(products.map(p => p.category).filter(Boolean))];
+      categories.forEach(cat => {
+        const opt = document.createElement("option");
+        opt.value = cat;
+        opt.textContent = cat.charAt(0).toUpperCase() + cat.slice(1);
+        categoryFilter.appendChild(opt);
+      });
+    } catch (err) { /* silently ignore — grid load will show the real error */ }
+  }
+
+  async function loadProducts() {
+    const grid = document.getElementById("grid");
+    try {
+      const query = buildQuery();
+      const products = await apiRequest(`/products/${query ? "?" + query : ""}`);
+      if (!products.length) {
+        grid.innerHTML = `<div class="empty-state">No products match these filters. Try clearing them, or log in as an admin and add some via <code>POST /products/</code>.</div>`;
+        return;
+      }
+      grid.innerHTML = products.map(p => `
+        <div class="card">
+          <h3>${p.name}</h3>
+          <p style="color:var(--text-muted); font-size:13px;">${p.description || ""}</p>
+          <p class="price">$${p.price.toFixed(2)}</p>
+          <p class="stock">${p.stock > 0 ? p.stock + " in stock" : "Out of stock"} ${p.category ? "· " + p.category : ""}</p>
+          <button class="btn" ${p.stock <= 0 ? "disabled style='opacity:0.5;cursor:not-allowed;'" : ""} onclick="addToCart('${p.id}')">Add to Cart</button>
+        </div>
+      `).join("");
+    } catch (err) {
+      grid.innerHTML = `<div class="empty-state">Couldn't load products. Is the FastAPI server running at ${API_BASE_URL}?</div>`;
+    }
+  }
+
+  async function addToCart(productId) {
+    if (!Auth.isLoggedIn()) {
+      window.location.href = "login.html";
+      return;
+    }
+    try {
+      await apiRequest("/cart/add", { method: "POST", auth: true, body: { product_id: productId, quantity: 1 } });
+      alert("Added to cart!");
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  categoryFilter.addEventListener("change", loadProducts);
+  sortFilter.addEventListener("change", loadProducts);
+  inStockFilter.addEventListener("change", loadProducts);
+
+  loadCategories();
+  loadProducts();
+</script>
+</body>
+</html>

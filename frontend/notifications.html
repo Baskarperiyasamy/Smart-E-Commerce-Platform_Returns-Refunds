@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Notifications · Smart E-Commerce</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<div class="navbar">
+  <div class="brand">Smart<span>Cart</span></div>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="products.html">Products</a>
+    <a href="cart.html">Cart</a>
+    <a href="orders.html">My Orders</a>
+    <a href="notifications.html" class="nav-bell" title="Notifications">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+      </svg>
+      <span class="bell-badge" id="bellBadge" style="display:none;">0</span>
+    </a>
+    <a href="database.html">Database</a>
+  </nav>
+  <div id="userBadge"></div>
+</div>
+
+<div class="container">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+    <div>
+      <h1 style="margin-bottom:6px;">Notifications</h1>
+      <p style="color:var(--text-muted); margin:0;">Order confirmations, payments, and shipping updates — live.</p>
+    </div>
+    <button class="btn secondary" style="width:auto; padding:10px 20px;" onclick="markAllRead()">Mark all as read</button>
+  </div>
+  <div id="notifArea" style="margin-top:24px;"></div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+  function timeAgo(iso) {
+    return new Date(iso).toLocaleString();
+  }
+
+  function notificationCard(n) {
+    return `
+      <div class="card" data-id="${n.id}" style="margin-bottom:14px; max-width:680px; ${n.read_status ? "opacity:0.6;" : ""}">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+          <div>
+            <span class="badge">${n.type.replaceAll("_", " ")}</span>
+            <p style="margin:10px 0 4px;">${n.message}</p>
+            <p style="margin:0; font-size:12px; color:var(--text-muted); font-family:var(--font-mono);">${timeAgo(n.timestamp)}</p>
+          </div>
+          ${n.read_status ? "" : `<button class="btn secondary" style="width:auto; padding:6px 14px; font-size:12px;" onclick="markOneRead('${n.id}')">Mark read</button>`}
+        </div>
+      </div>
+    `;
+  }
+
+  async function loadNotifications() {
+    const area = document.getElementById("notifArea");
+    if (!Auth.isLoggedIn()) {
+      area.innerHTML = `<div class="empty-state">You need to <a href="login.html">log in</a> to view notifications.</div>`;
+      return;
+    }
+    try {
+      const notifications = await NotificationsAPI.list();
+      if (!notifications.length) {
+        area.innerHTML = `<div class="empty-state">No notifications yet. They'll appear here after you place an order.</div>`;
+        return;
+      }
+      area.innerHTML = notifications.map(notificationCard).join("");
+    } catch (err) {
+      area.innerHTML = `<div class="empty-state">Couldn't load notifications: ${err.message}</div>`;
+    }
+  }
+
+  async function markOneRead(id) {
+    try {
+      await NotificationsAPI.markRead(id);
+      loadNotifications();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async function markAllRead() {
+    try {
+      await NotificationsAPI.markRead();
+      loadNotifications();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  loadNotifications();
+
+  // Live updates: prepend new notifications the instant they arrive,
+  // without needing to refresh the page.
+  connectNotificationSocket((event, data) => {
+    if (event === "order_status_updated") {
+      loadNotifications();
+    }
+  });
+</script>
+</body>
+</html>

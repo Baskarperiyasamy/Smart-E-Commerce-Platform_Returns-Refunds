@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Smart E-Commerce Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<div class="navbar">
+  <div class="brand">Smart<span>Cart</span></div>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="products.html">Products</a>
+    <a href="cart.html">Cart</a>
+    <a href="orders.html">My Orders</a>
+    <a href="notifications.html" class="nav-bell" title="Notifications">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+      </svg>
+      <span class="bell-badge" id="bellBadge" style="display:none;">0</span>
+    </a>
+    <a href="database.html">Database</a>
+  </nav>
+  <div id="userBadge"></div>
+</div>
+
+<div class="hero">
+  <h1>Shop smarter with SmartCart</h1>
+  <p>A full-stack e-commerce platform — FastAPI backend, Django admin, secure JWT auth, and social login, all wired together.</p>
+  <div style="margin-top: 28px; display:flex; gap:14px; justify-content:center;">
+    <a href="products.html" style="text-decoration:none;"><button class="btn" style="width:auto; padding:12px 28px;">Browse Products</button></a>
+    <a href="login.html" style="text-decoration:none;"><button class="btn secondary" style="width:auto; padding:12px 28px;">Login / Sign Up</button></a>
+  </div>
+</div>
+
+<div class="container">
+  <div class="section-head">
+    <h2>Featured Products</h2>
+    <a href="products.html" class="view-all">View all →</a>
+  </div>
+  <div id="featuredGrid" class="grid" style="margin-bottom:16px;"></div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+  async function loadFeatured() {
+    const grid = document.getElementById("featuredGrid");
+    try {
+      const products = await ProductsAPI.list();
+      const top3 = products.slice(0, 3);
+      if (!top3.length) {
+        grid.innerHTML = `<div class="empty-state">No products yet.</div>`;
+        return;
+      }
+      grid.innerHTML = top3.map(p => `
+        <div class="card">
+          <h3>${p.name}</h3>
+          <p style="color:var(--text-muted); font-size:13px;">${p.description || ""}</p>
+          <p class="price">$${p.price.toFixed(2)}</p>
+          <p class="stock">${p.stock > 0 ? p.stock + " in stock" : "Out of stock"} ${p.category ? "· " + p.category : ""}</p>
+        </div>
+      `).join("");
+    } catch (err) {
+      grid.innerHTML = `<div class="empty-state">Couldn't load products. Is the FastAPI server running?</div>`;
+    }
+  }
+  loadFeatured();
+</script>
+</body>
+</html>

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>My Cart · Smart E-Commerce</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<div class="navbar">
+  <div class="brand">Smart<span>Cart</span></div>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="products.html">Products</a>
+    <a href="cart.html">Cart</a>
+    <a href="orders.html">My Orders</a>
+    <a href="notifications.html" class="nav-bell" title="Notifications">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+      </svg>
+      <span class="bell-badge" id="bellBadge" style="display:none;">0</span>
+    </a>
+    <a href="database.html">Database</a>
+  </nav>
+  <div id="userBadge"></div>
+</div>
+
+<div class="container">
+  <h1>My Cart</h1>
+  <p style="color:var(--text-muted);">Items you've added, with totals calculated automatically.</p>
+  <div id="cartArea"></div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+  async function loadCart() {
+    const area = document.getElementById("cartArea");
+
+    if (!Auth.isLoggedIn()) {
+      area.innerHTML = `<div class="empty-state">You need to <a href="login.html">log in</a> to view your cart.</div>`;
+      return;
+    }
+
+    try {
+      const cart = await CartAPI.view();
+
+      if (!cart.items.length) {
+        area.innerHTML = `<div class="empty-state">Your cart is empty. <a href="products.html">Browse products</a> to add some.</div>`;
+        return;
+      }
+
+      const rows = cart.items.map(item => `
+        <div class="card" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; gap:16px;">
+          <div style="flex:1;">
+            <h3 style="margin:0 0 6px;">${item.product_name}</h3>
+            <p style="color:var(--text-muted); font-size:13px; margin:0 0 10px;">
+              $${item.unit_price.toFixed(2)} each ${item.in_stock ? "" : "· <span style='color:var(--danger)'>out of stock</span>"}
+            </p>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <button class="btn secondary" style="width:auto; padding:6px 12px;" onclick="changeQty('${item.cart_item_id}', ${item.quantity - 1})">−</button>
+              <span style="min-width:24px; text-align:center;">${item.quantity}</span>
+              <button class="btn secondary" style="width:auto; padding:6px 12px;" onclick="changeQty('${item.cart_item_id}', ${item.quantity + 1})">+</button>
+              <button class="btn secondary" style="width:auto; padding:6px 12px; margin-left:10px; color:var(--danger); border-color:var(--danger);" onclick="removeItem('${item.cart_item_id}')">Remove</button>
+            </div>
+          </div>
+          <p class="price" style="margin:0; white-space:nowrap;">$${item.item_total.toFixed(2)}</p>
+        </div>
+      `).join("");
+
+      area.innerHTML = `
+        <div style="max-width:640px; margin-top:24px;">
+          ${rows}
+          <div style="border-top:1px solid var(--border); margin-top:16px; padding-top:16px;">
+            <div style="display:flex; justify-content:space-between; padding:4px 0; color:var(--text-muted);">
+              <span>Cart total</span><span>$${cart.cart_total.toFixed(2)}</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; padding:4px 0; color:var(--text-muted);">
+              <span>Tax (${(cart.tax_rate * 100).toFixed(0)}%)</span><span>$${cart.tax.toFixed(2)}</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; padding:12px 0 0; margin-top:8px; border-top:1px solid var(--border);">
+              <h3 style="margin:0;">Grand total</h3>
+              <h3 style="margin:0; color:var(--primary);">$${cart.grand_total.toFixed(2)}</h3>
+            </div>
+          </div>
+          <button class="btn" style="margin-top:20px;" id="checkoutBtn" onclick="startCheckout()">Checkout with Stripe</button>
+          <div id="checkoutError" class="alert error" style="display:none; margin-top:14px;"></div>
+        </div>
+      `;
+    } catch (err) {
+      area.innerHTML = `<div class="empty-state">Couldn't load your cart: ${err.message}</div>`;
+    }
+  }
+
+  async function changeQty(cartItemId, newQty) {
+    try {
+      if (newQty <= 0) {
+        await CartAPI.remove(cartItemId);
+      } else {
+        await CartAPI.update(cartItemId, newQty);
+      }
+      loadCart();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async function removeItem(cartItemId) {
+    try {
+      await CartAPI.remove(cartItemId);
+      loadCart();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async function startCheckout() {
+    const btn = document.getElementById("checkoutBtn");
+    const errBox = document.getElementById("checkoutError");
+    errBox.style.display = "none";
+    btn.disabled = true;
+    btn.textContent = "Redirecting to Stripe…";
+
+    try {
+      const result = await CheckoutAPI.start();
+      // Send the browser to Stripe's hosted checkout page
+      window.location.href = result.checkout_url;
+    } catch (err) {
+      errBox.textContent = err.message;
+      errBox.style.display = "block";
+      btn.disabled = false;
+      btn.textContent = "Checkout with Stripe";
+    }
+  }
+
+  loadCart();
+
+  // Real-time: if the cart changes (e.g. updated from another tab), refresh
+  // this view automatically instead of showing stale totals.
+  connectNotificationSocket((event, data) => {
+    if (event === "cart_updated") {
+      loadCart();
+    }
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Database Viewer · Smart E-Commerce</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+<style>
+  .db-shell {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 48px 24px 80px;
+  }
+
+  .db-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  .db-live-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    color: var(--success);
+    background: rgba(46, 204, 113, 0.1);
+    border: 1px solid rgba(46, 204, 113, 0.3);
+    padding: 6px 12px;
+    border-radius: 999px;
+  }
+
+  .db-live-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 0 0 rgba(46, 204, 113, 0.6);
+    animation: dbPulse 1.8s infinite;
+  }
+
+  @keyframes dbPulse {
+    0% { box-shadow: 0 0 0 0 rgba(46, 204, 113, 0.5); }
+    70% { box-shadow: 0 0 0 8px rgba(46, 204, 113, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(46, 204, 113, 0); }
+  }
+
+  .db-tabs {
+    display: flex;
+    gap: 6px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+
+  .db-tab {
+    padding: 12px 20px;
+    font-family: var(--font-heading);
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text-muted);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .db-tab.active {
+    color: var(--text);
+    border-bottom-color: var(--primary);
+  }
+
+  .db-tab .count {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 1px 8px;
+    color: var(--text-muted);
+  }
+
+  .db-table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+
+  table.db-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  table.db-table th {
+    text-align: left;
+    padding: 12px 16px;
+    background: var(--surface-2);
+    color: var(--text-muted);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid var(--border);
+  }
+
+  table.db-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+  }
+
+  table.db-table tr:last-child td { border-bottom: none; }
+  table.db-table tr:hover td { background: var(--surface-2); }
+
+  .mono { font-family: "JetBrains Mono", monospace; font-size: 12px; color: var(--text-muted); }
+
+  .db-empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-muted);
+  }
+
+  .db-locked {
+    text-align: center;
+    padding: 100px 20px;
+  }
+
+  .db-locked h2 { margin-bottom: 10px; }
+  .db-locked p { color: var(--text-muted); max-width: 420px; margin: 0 auto 24px; }
+</style>
+</head>
+<body>
+
+<div class="navbar">
+  <div class="brand">Smart<span>Cart</span></div>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="products.html">Products</a>
+    <a href="cart.html">Cart</a>
+    <a href="orders.html">My Orders</a>
+    <a href="notifications.html" class="nav-bell" title="Notifications">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+      </svg>
+      <span class="bell-badge" id="bellBadge" style="display:none;">0</span>
+    </a>
+    <a href="database.html">Database</a>
+  </nav>
+  <div id="userBadge"></div>
+</div>
+
+<div class="db-shell">
+  <div class="db-header">
+    <div>
+      <h1 style="margin-bottom:6px;">Database Viewer</h1>
+      <p style="color:var(--text-muted); margin:0;">Live tables, read straight from the same database FastAPI and this frontend both use.</p>
+    </div>
+    <span class="db-live-pill"><span class="db-live-dot"></span> LIVE</span>
+  </div>
+
+  <div id="content"></div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+  const content = document.getElementById("content");
+  let activeTab = "users";
+  let cache = { users: null, products: null, carts: null };
+
+  function escapeHtml(str) {
+    if (str === null || str === undefined) return "";
+    return String(str).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  }
+
+  function roleBadge(role) {
+    return `<span class="badge role-${role}">${escapeHtml(role)}</span>`;
+  }
+
+  async function renderLocked() {
+    content.innerHTML = `
+      <div class="db-locked">
+        <h2>Admins only</h2>
+        <p>The Database Viewer shows raw user, product, and cart records — log in with an admin account to continue.</p>
+        <a href="login.html" style="text-decoration:none;"><button class="btn" style="width:auto; padding:12px 28px;">Log In</button></a>
+      </div>`;
+  }
+
+  async function loadAll() {
+    if (!Auth.isLoggedIn()) { renderLocked(); return; }
+
+    let me;
+    try {
+      me = await AuthAPI.me();
+    } catch {
+      renderLocked();
+      return;
+    }
+
+    if (me.role !== "admin") { renderLocked(); return; }
+
+    try {
+      const [users, products, carts] = await Promise.all([
+        AdminAPI.listUsers(),
+        ProductsAPI.list(),
+        AdminAPI.listAllCarts(),
+      ]);
+      cache = { users, products, carts };
+      renderTabs();
+      renderTab(activeTab);
+    } catch (err) {
+      content.innerHTML = `<div class="db-empty">Couldn't load database: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function renderTabs() {
+    content.innerHTML = `
+      <div class="db-tabs">
+        <button class="db-tab" data-tab="users">Users <span class="count">${cache.users.length}</span></button>
+        <button class="db-tab" data-tab="products">Products <span class="count">${cache.products.length}</span></button>
+        <button class="db-tab" data-tab="carts">Cart Items <span class="count">${cache.carts.length}</span></button>
+      </div>
+      <div class="db-table-wrap"><div id="tableArea"></div></div>
+    `;
+    content.querySelectorAll(".db-tab").forEach(btn => {
+      btn.addEventListener("click", () => { activeTab = btn.dataset.tab; renderTab(activeTab); });
+    });
+  }
+
+  function renderTab(tab) {
+    document.querySelectorAll(".db-tab").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+    const area = document.getElementById("tableArea");
+
+    if (tab === "users") {
+      if (!cache.users.length) { area.innerHTML = `<div class="db-empty">No users yet.</div>`; return; }
+      area.innerHTML = `
+        <table class="db-table">
+          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Provider</th><th>Created</th></tr></thead>
+          <tbody>
+            ${cache.users.map(u => `
+              <tr>
+                <td>${escapeHtml(u.name)}</td>
+                <td class="mono">${escapeHtml(u.email)}</td>
+                <td>${roleBadge(u.role)}</td>
+                <td class="mono">${escapeHtml(u.auth_provider)}</td>
+                <td class="mono">${new Date(u.created_at).toLocaleString()}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>`;
+    }
+
+    if (tab === "products") {
+      if (!cache.products.length) { area.innerHTML = `<div class="db-empty">No products yet.</div>`; return; }
+      area.innerHTML = `
+        <table class="db-table">
+          <thead><tr><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Popularity</th></tr></thead>
+          <tbody>
+            ${cache.products.map(p => `
+              <tr>
+                <td>${escapeHtml(p.name)}</td>
+                <td class="mono">${escapeHtml(p.category || "—")}</td>
+                <td class="mono">$${p.price.toFixed(2)}</td>
+                <td class="mono">${p.stock > 0 ? p.stock : `<span style="color:var(--danger)">0</span>`}</td>
+                <td class="mono">${p.popularity}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>`;
+    }
+
+    if (tab === "carts") {
+      if (!cache.carts.length) { area.innerHTML = `<div class="db-empty">No cart items yet. Add something to a cart, then refresh.</div>`; return; }
+      area.innerHTML = `
+        <table class="db-table">
+          <thead><tr><th>User</th><th>Product</th><th>Qty</th><th>Unit Price</th><th>Line Total</th></tr></thead>
+          <tbody>
+            ${cache.carts.map(c => `
+              <tr>
+                <td>${escapeHtml(c.user_name)} <span class="mono">(${escapeHtml(c.user_email)})</span></td>
+                <td>${escapeHtml(c.product_name)}</td>
+                <td class="mono">${c.quantity}</td>
+                <td class="mono">$${c.unit_price.toFixed(2)}</td>
+                <td class="mono">$${c.item_total.toFixed(2)}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>`;
+    }
+  }
+
+  loadAll();
+</script>
+</body>
+</html>

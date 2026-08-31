@@ -1,0 +1,61 @@
+# Optional Docker deployment — not required to run/test the project locally
+# (see the main README for the normal local setup). This is a best-effort
+# starting point for containerizing the full stack: MySQL + FastAPI backend
+# + Django Admin Panel.
+#
+# Usage:
+#   docker compose up --build
+#
+# Then:
+#   FastAPI:      http://localhost:8000/docs
+#   Django Admin: http://localhost:8001/admin/
+#     (still run `docker compose exec admin_panel python manage.py migrate`
+#      and `... createsuperuser` once, the same as the local setup)
+#
+# You still need to fill in fastapi_backend/.env and admin_panel/.env
+# (Stripe keys, SMTP creds) before starting — docker-compose does not
+# generate those for you.
+
+version: "3.9"
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ecommerce_db
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  fastapi_backend:
+    build: ./fastapi_backend
+    restart: unless-stopped
+    env_file:
+      - ./fastapi_backend/.env
+    environment:
+      DATABASE_URL: mysql+pymysql://root:${MYSQL_ROOT_PASSWORD:-rootpassword}@mysql:3306/ecommerce_db
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mysql
+
+  admin_panel:
+    build: ./admin_panel
+    restart: unless-stopped
+    env_file:
+      - ./admin_panel/.env
+    environment:
+      DB_HOST: mysql
+      DB_NAME: ecommerce_db
+      DB_USER: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+    ports:
+      - "8001:8001"
+    depends_on:
+      - mysql
+
+volumes:
+  mysql_data:

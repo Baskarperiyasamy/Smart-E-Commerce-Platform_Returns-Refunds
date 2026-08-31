@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Login · Smart E-Commerce</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<div class="navbar">
+  <div class="brand">Smart<span>Cart</span></div>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="products.html">Products</a>
+    <a href="cart.html">Cart</a>
+    <a href="orders.html">My Orders</a>
+    <a href="notifications.html" class="nav-bell" title="Notifications">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+      </svg>
+      <span class="bell-badge" id="bellBadge" style="display:none;">0</span>
+    </a>
+    <a href="database.html">Database</a>
+  </nav>
+</div>
+
+<div class="auth-wrap">
+  <h1>Welcome back</h1>
+  <p class="sub">Log in to your account to continue shopping.</p>
+
+  <div id="alertBox" class="alert"></div>
+
+  <form id="loginForm">
+    <div class="field">
+      <label for="email">Email</label>
+      <input type="email" id="email" required placeholder="you@example.com" />
+    </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <input type="password" id="password" required placeholder="••••••••" />
+    </div>
+    <button type="submit" class="btn">Log In</button>
+  </form>
+
+  <div class="divider">or continue with</div>
+
+  <button id="googleBtn" class="btn google">Continue with Google</button>
+  <button id="facebookBtn" class="btn facebook">Continue with Facebook</button>
+
+  <p class="switch-link">Don't have an account? <a href="register.html">Sign up</a></p>
+</div>
+
+<script src="https://cdn.auth0.com/js/auth0-spa-js/2.1/auth0-spa-js.production.js"></script>
+<script src="js/auth0-config.js"></script>
+<script src="js/api.js"></script>
+<script>
+  const alertBox = document.getElementById("alertBox");
+
+  function showError(msg) {
+    alertBox.className = "alert error";
+    alertBox.textContent = msg;
+  }
+
+  document.getElementById("loginForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const email = document.getElementById("email").value.trim();
+    const password = document.getElementById("password").value;
+    try {
+      await AuthAPI.login(email, password);
+      window.location.href = "products.html";
+    } catch (err) {
+      showError(err.message);
+    }
+  });
+
+  // --------------------------------------------------------------
+  // Social login (Google / Facebook) via Auth0
+  // --------------------------------------------------------------
+  let auth0Client = null;
+
+  async function initAuth0() {
+    auth0Client = await auth0.createAuth0Client({
+      domain: AUTH0_CONFIG.domain,
+      clientId: AUTH0_CONFIG.clientId,
+      authorizationParams: { redirect_uri: AUTH0_CONFIG.redirectUri },
+    });
+
+    // If we just got redirected back from Auth0 with a code, finish the flow
+    const query = window.location.search;
+    if (query.includes("code=") && query.includes("state=")) {
+      await auth0Client.handleRedirectCallback();
+      window.history.replaceState({}, document.title, window.location.pathname);
+      const claims = await auth0Client.getTokenSilently();
+      try {
+        await AuthAPI.socialLogin(claims);
+        window.location.href = "products.html";
+      } catch (err) {
+        showError(err.message);
+      }
+    }
+  }
+
+  document.getElementById("googleBtn").addEventListener("click", async () => {
+    if (!auth0Client) await initAuth0();
+    await auth0Client.loginWithRedirect({
+      authorizationParams: { connection: "google-oauth2" },
+    });
+  });
+
+  document.getElementById("facebookBtn").addEventListener("click", async () => {
+    if (!auth0Client) await initAuth0();
+    await auth0Client.loginWithRedirect({
+      authorizationParams: { connection: "facebook" },
+    });
+  });
+
+  initAuth0();
+</script>
+
+</body>
+</html>
