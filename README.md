@@ -1,13 +1,14 @@
-# Smart E-Commerce Platform — Catalog, Cart, Stripe Checkout, Notifications & Django Admin
+# Smart E-Commerce Platform — Catalog, Cart, Stripe Checkout, Notifications, Returns & Admin Refund Processing
 
 FastAPI backend + plain HTML/CSS/JS frontend + Django Admin Panel, all backed by the same **MySQL** database.
 
 ```
 smart-ecommerce-mysql/
-├── fastapi_backend/    # Product/Cart/Checkout/Payment/Notification APIs (Python/FastAPI + MySQL)
-├── admin_panel/         # Django Admin Panel — user/product/order management, analytics, CSV/PDF export
-├── frontend/            # HTML/CSS/JS storefront (incl. Database Viewer, Orders, Notifications)
+├── fastapi_backend/    # Product/Cart/Checkout/Payment/Notification/Returns APIs (Python/FastAPI + MySQL)
+├── admin_panel/         # Django Admin Panel — user/product/order/return management, analytics, CSV/PDF export
+├── frontend/            # HTML/CSS/JS storefront (incl. Database Viewer, Orders, Notifications, Admin Returns)
 ├── postman/             # Postman collection
+├── output_images/       # Screenshots demonstrating each module end-to-end
 └── docker-compose.yml   # Optional Docker deployment (MySQL + both backends)
 ```
 
@@ -26,7 +27,7 @@ smart-ecommerce-mysql/
 - `DELETE /cart/remove`
 - `GET /cart`
 
-**Checkout & Payments (new)**
+**Checkout & Payments**
 - `POST /checkout/` — validates the cart, calculates the total, creates an
   `Order` (+ `OrderItem` line-item snapshots) and a `Payment` record, then
   creates a **Stripe Checkout Session** (which also creates the underlying
@@ -35,22 +36,24 @@ smart-ecommerce-mysql/
 - `POST /webhooks/stripe` — Stripe calls this after payment succeeds/fails.
   Flips `Order.payment_status` / `Order.order_status`, updates the `Payment`
   row, and decrements product stock once payment is confirmed.
-- `GET /orders/` — the logged-in user's own orders (with items + payments)
+- `GET /orders/` — the logged-in user's own orders (with items + payments +
+  tracking dates + any return request)
 - `GET /orders/{id}` — a single order (owner, or admin/staff)
 - `GET /orders/all` — every order (admin/staff only)
 - `PUT /orders/{id}/status` — move an order along `pending → paid → shipped →
-  delivered` or `cancelled` (admin/staff only)
+  delivered` or `cancelled` (admin/staff only). Recording `shipped` or
+  `delivered` also stamps `Order.shipped_at` / `Order.delivered_at`.
 
-**Notifications & Real-Time Updates (new)**
+**Notifications & Real-Time Updates**
 - `GET /notifications/` — every notification for the logged-in user, newest first
 - `POST /notifications/read` — mark one notification as read (pass
   `notification_id`), or all of them (omit it)
 - `WS /ws/notifications?token=...` — WebSocket channel pushing
   `order_status_updated` and `cart_updated` events live to the browser
 - A `Notification` row is created — and an email sent, and a WebSocket event
-  pushed — automatically whenever: an order is placed (order confirmed), a
-  Stripe payment succeeds or fails, or an order's status is set to `shipped`
-  or `delivered`.
+  pushed — automatically whenever: an order is placed, a Stripe payment
+  succeeds or fails, an order's status is set to `shipped`/`delivered`, a
+  return is approved/rejected, or a refund completes.
 
 Each cart/checkout response includes:
 ```json
@@ -63,18 +66,24 @@ Each cart/checkout response includes:
 }
 ```
 
-**Order** — `user`, `items` (products), `total_amount`, `payment_status`
-(`pending`/`paid`/`failed`/`refunded`), `order_status`
-(`pending`/`paid`/`shipped`/`delivered`/`return_requested`/`cancelled`), `created_at`.
+**Order** — `user`, `items` (products), `payments`, `total_amount`,
+`payment_status` (`pending`/`paid`/`failed`/`refunded`), `order_status`
+(`pending`/`paid`/`shipped`/`delivered`/`return_requested`/`returned`/`cancelled`),
+`created_at`, `updated_at`, `shipped_at`, `delivered_at`.
 
 **Payment** — `order_id`, `amount`, `payment_method`, `transaction_id`
-(Stripe PaymentIntent id), `status`, `timestamp`.
+(Stripe PaymentIntent/Refund id), `status`, `timestamp`.
 
 **Notification** — `id`, `user`, `type` (`order_confirmed` / `payment_successful`
-/ `payment_failed` / `order_shipped` / `order_delivered` / `order_return_requested`), `message`,
+/ `payment_failed` / `order_shipped` / `order_delivered` / `order_return_requested`
+/ `return_approved` / `return_rejected` / `refund_completed`), `message`,
 `read_status`, `timestamp`.
 
-**Returns / Refunds — Customer Experience & Insights Module (new)**
+---
+
+## Returns & Refunds (Customer + Admin)
+
+### Customer side
 - `POST /orders/{order_id}/return` — customer requests a return for one of
   their own orders. Body: `{"reason": "...", "comment": "optional"}`.
   Allowed only if `order_status == "delivered"` and it's within **7 days**
@@ -82,23 +91,48 @@ Each cart/checkout response includes:
   `ReturnRequest` (`status: pending`).
 - `GET /orders/{order_id}/return` — fetch the return request (if any) for
   one order.
-- `GET /orders/returns/all` — every return request (admin/staff only).
-- Approving/rejecting a return is done from the **Django Admin panel**
-  (`/admin/storefront/returnrequest/`), same as every other staff action
-  that changes order status in this project. Approving sets
-  `payment_status → refunded` and `order_status → cancelled`; rejecting
-  sets `order_status` back to `delivered`. Both notify the customer.
 - **Frontend**: `orders.html` shows a **Request Return** button on eligible
-  orders (delivered, within the 7-day window, no existing return), and a
-  status badge (`pending` / `approved` / `rejected`) once one's been
-  submitted.
+  orders (delivered, within the 7-day window, no existing return), a
+  status chip (`pending`/`approved`/`rejected`) once one's been submitted,
+  and a collapsible **View Order Details** panel.
+
+### Admin side — return/refund processing
+Full lifecycle control lives in FastAPI, exposed to staff through a
+dedicated frontend page:
+
+- `GET /admin/returns/` — every return request, newest first, with the
+  full order embedded (items, totals, `shipped_at`/`delivered_at` tracking
+  dates) so the admin UI needs only this one call.
+- `POST /admin/returns/{return_id}/approve` — optional body
+  `{"admin_note": "..."}`. Sets `ReturnRequest.status → approved`,
+  `Order.order_status → returned`, **restocks inventory** (adds each line
+  item's quantity back to `Product.stock`), issues a **Stripe refund**
+  (`stripe.Refund.create`) when a real payment intent exists, and sets
+  `Order.payment_status → refunded`. Sends two notifications in sequence:
+  `return_approved`, then `refund_completed`.
+- `POST /admin/returns/{return_id}/reject` — optional body
+  `{"admin_note": "..."}`. Sets `ReturnRequest.status → rejected`,
+  `Order.order_status` back to `delivered`. Sends a `return_rejected`
+  notification including the admin's note as the reason.
+- **Frontend**: `frontend/admin-returns.html` — admin/staff-only page with:
+  - Live stats cards (Pending / Approved / Rejected / Total Refunded),
+    auto-refreshing every 15 seconds
+  - Searchable, filterable table of every return request
+  - A detail modal per order showing full tracking (`Created` /
+    `Shipped` / `Delivered` timestamps), items, and the return reason —
+    with **Approve Return** / **Reject Return** actions (rejecting
+    requires a note, which is sent to the customer)
 
 **ReturnRequest** — `id`, `order_id`, `user_id`, `reason`, `comment`,
-`status` (`pending`/`approved`/`rejected`), `created_at`. One per order.
+`admin_note`, `status` (`pending`/`approved`/`rejected`), `created_at`.
+One per order.
 
 **Relationships** — `User → Cart → Product`, `User → Order → OrderItem →
-Product`, `Order → Payment`, all via foreign keys. Every query filters by the
-logged-in user's id, so each user only ever sees their own cart/orders.
+Product`, `Order → Payment`, `Order → ReturnRequest`, all via foreign keys.
+Every query filters by the logged-in user's id, so each user only ever sees
+their own cart/orders (admins/staff can see all).
+
+---
 
 **Auth** — register, login, refresh, me, JWT, bcrypt hashing, Auth0 social
 login, RBAC (admin / staff / customer).
@@ -106,33 +140,36 @@ login, RBAC (admin / staff / customer).
 **Database Viewer** (`frontend/database.html`) — an admin-only page showing
 live Users / Products / Cart tables.
 
-**Django Admin Panel (new — `admin_panel/`)** — a separate Django project on
+**Django Admin Panel (`admin_panel/`)** — a separate Django project on
 port 8001, sharing the exact same MySQL database as the FastAPI backend via
 *unmanaged* models (Django never creates/alters these tables — SQLAlchemy
 already owns that schema; Django only reads and writes rows):
 - **User Management** — view/search users, edit details, assign roles
   (admin/staff/customer), activate/deactivate accounts (bulk actions)
 - **Product Management** — add, edit, delete products; upload a product
-  image (saved to `admin_panel/media/products/`, its URL appended to the
-  product's `images` field); update stock directly from the list view
+  image; update stock directly from the list view
 - **Order Management** — view every order with its line items and payment
   history inline; changing `order_status` to `shipped` or `delivered`
   automatically creates a `Notification` row and sends the customer an
   email, the same way the FastAPI webhook does
+- **Return Requests** — read-only view of all `ReturnRequest` rows for
+  reference/search. **Approving/rejecting returns for real is done through
+  the FastAPI admin endpoints above (via `admin-returns.html` or Swagger)**,
+  since that's the single source of truth for the restock + Stripe refund
+  logic — the Django side isn't kept in sync with that workflow.
 - **Analytics Dashboard** (`/dashboard/`) — Chart.js charts for total sales,
-  a 30-day revenue trend, and top-selling products, plus a low-stock alert
-  table
+  a 30-day revenue trend, order status breakdown (including
+  `return_requested`), top-selling products, and a low-stock alert table
 - **Export Reports** — Orders, Sales, and Users reports, each downloadable
   as CSV or PDF
 
-One honest limitation: order-status changes made from the Django admin
-**do** create the Notification row and send the email, but they **can't**
-push the live WebSocket update — that connection lives inside the separate
-FastAPI process's memory, which Django has no way to reach into. The
-customer still sees the new notification the next time they load/refresh
-`notifications.html`, just not instantly. Changes made through the FastAPI
-API itself (e.g. `PUT /orders/{id}/status` in Swagger) still push live, as
-before.
+One honest limitation: order-status/return changes made from the Django
+admin **do** create the Notification row and send the email, but they
+**can't** push the live WebSocket update — that connection lives inside the
+separate FastAPI process's memory, which Django has no way to reach into.
+The customer still sees the new notification the next time they
+load/refresh `notifications.html`, just not instantly. Changes made through
+the FastAPI API (Swagger, or `admin-returns.html`) still push live.
 
 ---
 
@@ -145,9 +182,9 @@ before.
    ```sql
    CREATE DATABASE ecommerce_db;
    ```
-3. That's it — no tables to create manually. SQLAlchemy will create all
-   tables automatically (including the new `orders`, `order_items`, and
-   `payments` tables) the first time the FastAPI app starts.
+3. SQLAlchemy creates the core tables automatically the first time the
+   FastAPI app starts. Two additional migrations are needed for the
+   returns/refunds module (see "Returns/Refunds schema" below).
 
 ### 2. Confirm your MySQL credentials
 
@@ -176,7 +213,7 @@ Open `.env` and edit:
 DATABASE_URL=mysql+pymysql://root:your_mysql_password@localhost:3306/ecommerce_db
 ```
 
-### Set up Stripe (new)
+### Set up Stripe
 
 1. Create a free account at https://dashboard.stripe.com/register
 2. Go to **Developers → API keys** and copy your **test** Secret key and
@@ -193,10 +230,9 @@ DATABASE_URL=mysql+pymysql://root:your_mysql_password@localhost:3306/ecommerce_d
    ```
    This prints a `whsec_...` value — paste it into `.env` as
    `STRIPE_WEBHOOK_SECRET`. Keep this terminal running any time you test
-   checkout locally; it's what forwards Stripe's payment-confirmation
-   events to your backend.
+   checkout, or an admin return approval (which also calls Stripe), locally.
 
-### Set up Email Notifications (new)
+### Set up Email Notifications
 
 Notifications are sent via SMTP. Easiest option — a Gmail account:
 
@@ -215,17 +251,37 @@ If SMTP isn't configured, the app still works — it just logs
 `[email] SMTP not configured — skipped '...'` to the terminal instead of
 sending, so the Notification row and the WebSocket push still happen either way.
 
-Then create the tables and load sample data:
+Then create the tables:
 ```bash
-python seed_admin.py
-python seed_products.py
 uvicorn app.main:app --reload --port 8000
+```
+
+### Returns/Refunds schema (one-time, run in MySQL Workbench)
+
+`create_all()` only creates brand-new tables — it won't alter existing
+`ENUM` columns or add new columns to `orders`/`return_requests` created in
+earlier sessions. Run this once against `ecommerce_db`:
+
+```sql
+USE ecommerce_db;
+
+ALTER TABLE orders
+  MODIFY order_status ENUM('pending','paid','shipped','delivered','return_requested','returned','cancelled') NOT NULL DEFAULT 'pending',
+  ADD COLUMN shipped_at DATETIME NULL AFTER updated_at,
+  ADD COLUMN delivered_at DATETIME NULL AFTER shipped_at;
+
+ALTER TABLE notifications
+  MODIFY type ENUM('order_confirmed','payment_successful','payment_failed','order_shipped','order_delivered','order_return_requested','return_approved','return_rejected','refund_completed') NOT NULL;
+
+ALTER TABLE return_requests
+  ADD COLUMN admin_note TEXT NULL AFTER comment;
 ```
 
 Confirm by going back to MySQL Workbench and running:
 ```sql
-USE ecommerce_db;
-SHOW TABLES;   -- now includes orders, order_items, payments
+SHOW TABLES;   -- includes orders, order_items, payments, return_requests
+SHOW COLUMNS FROM orders LIKE 'shipped_at';
+SHOW COLUMNS FROM return_requests LIKE 'admin_note';
 ```
 
 Swagger docs: **http://127.0.0.1:8000/docs**
@@ -241,14 +297,16 @@ python -m http.server 5500
 
 Open **http://127.0.0.1:5500/index.html**
 
+Admin/staff accounts land on **http://127.0.0.1:5500/admin-returns.html**
+after login; everyone else lands on `products.html`.
+
 ---
 
-## Django Admin Panel Setup (new)
+## Django Admin Panel Setup
 
-**Do this only after the FastAPI backend has been started at least once**
-(the `python seed_admin.py` / `uvicorn` steps above) — that's what actually
-creates the `users`, `products`, `orders`, etc. tables in MySQL. Django
-attaches to those existing tables; it doesn't create them.
+**Do this only after the FastAPI backend has been started at least once** —
+that's what actually creates the `users`, `products`, `orders`, etc. tables
+in MySQL. Django attaches to those existing tables; it doesn't create them.
 
 ```bash
 cd admin_panel
@@ -276,16 +334,15 @@ Then:
 ```bash
 python manage.py migrate
 ```
-This only creates Django's **own** internal tables (`auth_user`,
-`django_session`, `django_admin_log`, etc.) — it will not touch `users`,
-`products`, `orders`, or any other table the FastAPI backend owns.
+This only creates Django's **own** internal tables — it will not touch
+`users`, `products`, `orders`, `return_requests`, or any other table the
+FastAPI backend owns.
 
-Create your Django admin login (this is separate from the app's own
-`admin@example.com` — it's specifically for logging into this Django panel):
+Create your Django admin login (separate from the app's own JWT accounts):
 ```bash
 python manage.py createsuperuser
 ```
-Follow the prompts (username, email, password), then start the server:
+Follow the prompts, then start the server:
 ```bash
 python manage.py runserver 8001
 ```
@@ -304,12 +361,28 @@ created. Analytics dashboard: **http://127.0.0.1:8001/dashboard/**
 4. Stripe redirects you back to `order-success.html`, and (via the webhook,
    forwarded by `stripe listen`) your order's `payment_status` flips to
    `paid` and product stock is decremented
-5. Check `orders.html` for your order history, or MySQL Workbench:
-   `SELECT * FROM orders; SELECT * FROM payments;`
 
-If `payment_status` stays `pending` after paying, make sure the
-`stripe listen --forward-to localhost:8000/webhooks/stripe` terminal is
-still running — that's what delivers Stripe's confirmation to your backend.
+---
+
+## Try Returns & Admin Refund Processing end-to-end
+
+1. As admin/staff, mark a delivered order (`PUT /orders/{id}/status` with
+   `"delivered"`, or via Django's "Mark selected orders as Delivered"
+   action) — this stamps `delivered_at`
+2. Log in as that order's customer, go to `orders.html` — a **Request
+   Return** button appears since it's within the 7-day window
+3. Submit a return with a reason — the order flips to `Return Requested`,
+   the customer gets an in-app notification + email
+4. Log in as admin, go to `admin-returns.html` — the new request appears
+   in the table and in the **Pending** stat card
+5. Open it, optionally add a note, click **Approve Return** — inventory is
+   restocked, a Stripe refund is issued (if configured), `order_status`
+   becomes `Returned`, `payment_status` becomes `Refunded`, and the
+   customer receives two notifications (`Return Approved`, then
+   `Refund Completed`) plus matching emails
+6. Or click **Reject Return** (a note is required) — the order reverts to
+   `Delivered`, and the customer gets a `Return Rejected` notification +
+   email with your note as the reason
 
 ---
 
@@ -317,55 +390,37 @@ still running — that's what delivers Stripe's confirmation to your backend.
 
 1. Log in as a customer in one browser tab, and open `notifications.html`
    — this opens a live WebSocket connection to the backend
-2. In another tab (or the same one), place an order via Checkout
-3. The moment the order is created, an **"Order confirmed"** notification
-   appears instantly on the Notifications page (pushed over WebSocket, no
-   refresh needed) — and an email goes out if SMTP is configured
-4. Complete the Stripe payment — a **"Payment successful"** notification
-   arrives the same way once the webhook confirms it
-5. Log in as admin, open Swagger (`/docs`), and use
-   `PUT /orders/{order_id}/status` with `"order_status": "shipped"`, then
-   `"delivered"` — each one fires a live notification + email to the customer
-6. Click **Mark all as read** on the Notifications page, or mark a single
-   one — `POST /notifications/read`
-7. To see the cart's real-time side: open `cart.html` in two tabs logged in
-   as the same user, add an item in one tab, and watch the other tab's
-   totals update automatically via the `cart_updated` WebSocket event
-
-If notifications don't appear live, check the browser console for a
-WebSocket connection error — the token is passed as
-`?token=...` in the URL since browsers can't set custom headers on a
-WebSocket handshake.
+2. Place an order via Checkout — an **"Order confirmed"** notification
+   appears instantly (pushed over WebSocket) and an email goes out if SMTP
+   is configured
+3. Complete the Stripe payment — a **"Payment successful"** notification
+   arrives the same way
+4. As admin, use `PUT /orders/{order_id}/status` with `"shipped"`, then
+   `"delivered"` — each fires a live notification + email
+5. Approve or reject a return as above — same live behavior
+6. Click **Mark all as read**, or mark a single one — `POST /notifications/read`
 
 ---
 
 ## Try the Django Admin Panel end-to-end
 
 1. Go to `http://127.0.0.1:8001/admin/` and log in with your Django superuser
-2. Click **Users** — search for a customer, edit their role or untick
-   "Is active" to deactivate them, or use the bulk actions dropdown
-   (Assign role: Admin/Staff/Customer, Activate/Deactivate) on multiple
-   users at once
-3. Click **Products** → **Add product** — fill in the fields and use the
-   **Image upload** field at the bottom to attach a real image file; save,
-   and the image's URL is appended to that product's `images` field
-4. Click **Orders** — open any order to see its line items and payment
-   history inline (read-only, since those come from checkout/Stripe).
-   Change `order_status` to `Shipped`, save — the customer gets a new
-   Notification row + an email (check their inbox if SMTP is configured)
-5. Go to `http://127.0.0.1:8001/dashboard/` — see total sales, the revenue
-   trend chart, top-selling products, and any low-stock products
-6. Click any of the **Export Reports** links at the bottom of the dashboard
-   to download the Orders/Sales/Users report as CSV or PDF
+2. **Users** — search for a customer, edit their role, or use bulk actions
+   (Assign role, Activate/Deactivate)
+3. **Products** — add a product with an image upload; edit stock inline
+4. **Orders** — open any order to see items/payments inline; change
+   `order_status` to `Shipped`/`Delivered` — triggers a Notification + email
+5. **Return Requests** — browse submitted returns (read-only reference;
+   approve/reject via the FastAPI endpoints/`admin-returns.html` instead)
+6. `http://127.0.0.1:8001/dashboard/` — sales totals, revenue trend, order
+   status breakdown, top products, low-stock alerts, CSV/PDF exports
 
 ---
 
 ## Optional Docker Deployment
 
 A `docker-compose.yml` at the project root containerizes MySQL + the
-FastAPI backend + the Django Admin Panel (the frontend and Stripe CLI still
-run locally, same as before — this only containerizes the two Python
-services and their database):
+FastAPI backend + the Django Admin Panel:
 
 ```bash
 docker compose up --build
@@ -381,18 +436,18 @@ docker compose exec admin_panel python manage.py createsuperuser
 - Django Admin: `http://localhost:8001/admin/`
 
 You still need `fastapi_backend/.env` and `admin_panel/.env` filled in with
-your real Stripe/SMTP values before starting — `docker-compose.yml` doesn't
-generate those for you, it only wires up the database connection.
+your real Stripe/SMTP values, and the returns/refunds `ALTER TABLE`
+statements applied, before starting.
 
 ---
 
 ## Postman
 
 Import `postman/ecommerce_auth.postman_collection.json` — organized into
-**Auth**, **Products**, **Cart**, **Checkout**, **Orders**, **Notifications**
-folders, covering every FastAPI endpoint above. The Django Admin Panel is a
-server-rendered, browser-based tool (not a JSON API), so it isn't part of
-this collection — use a browser for it, as described above.
+**Auth**, **Products**, **Cart**, **Checkout**, **Orders**, **Returns**,
+**Admin Returns**, **Notifications** folders, covering every FastAPI
+endpoint above. The Django Admin Panel is a server-rendered, browser-based
+tool (not a JSON API), so it isn't part of this collection.
 
 ---
 
@@ -400,18 +455,21 @@ this collection — use a browser for it, as described above.
 
 | Problem | Fix |
 |---|---|
-| `ModuleNotFoundError: No module named 'stripe'` | Run `pip install -r requirements.txt` again — it's in there now |
-| `Stripe error: ...` on `POST /checkout/` | Double-check `STRIPE_SECRET_KEY` in `.env` is a valid **test** key (starts `sk_test_`) |
-| Order stays `payment_status: pending` after paying | The `stripe listen --forward-to localhost:8000/webhooks/stripe` terminal isn't running, or `STRIPE_WEBHOOK_SECRET` in `.env` doesn't match the one it printed |
-| `Invalid webhook signature` in backend logs | `STRIPE_WEBHOOK_SECRET` doesn't match the current `stripe listen` session — restart `stripe listen` and copy the new `whsec_...` value |
-| `AttributeError: 'get' is a dict method, but a Session is not a dict` | You're on an older copy of `webhooks.py` — this is fixed by calling `.to_dict()` on `event["data"]["object"]` before using `.get(...)` on it (newer `stripe` SDK versions no longer support dict-style `.get()` directly) |
-| Notifications page shows nothing / WebSocket won't connect | Make sure you're logged in (the token is required as a query param) and that the backend is running on port 8000 |
-| `[email] SMTP not configured — skipped ...` in backend/Django logs | Expected if you haven't filled in `SMTP_*` values in `.env` yet — notifications still get created, only the email is skipped |
-| Email fails with an authentication error | For Gmail, you must use an **App Password**, not your normal account password, and 2-Step Verification must be turned on first |
-| Django `django.db.utils.OperationalError` on startup | `admin_panel/.env` has the wrong MySQL credentials, or MySQL isn't running — double-check it matches `fastapi_backend/.env` |
-| Django admin shows no Users/Products/Orders | You ran `python manage.py migrate` before ever starting the FastAPI backend, so those tables don't exist yet — start `uvicorn` at least once first (see "Django Admin Panel Setup" above) |
-| Order status changed in Django doesn't update instantly in `notifications.html` | Expected — see the "one honest limitation" note under Django Admin Panel above; the Notification + email still get created, just not the live push |
-| `Access denied for user 'root'@'localhost'` | Your password in `.env` is wrong — double-check it matches MySQL Workbench's connection |
-| `Unknown database 'ecommerce_db'` | You skipped the `CREATE DATABASE ecommerce_db;` step in MySQL Workbench |
-| `Can't connect to MySQL server` | MySQL server isn't running — start it (Workbench usually shows server status, or check Windows Services for "MySQL80" or similar) |
-| Tables don't appear in Workbench | Make sure you ran `python seed_admin.py` at least once — that's what triggers table creation |
+| `ModuleNotFoundError: No module named 'stripe'` | Run `pip install -r requirements.txt` again |
+| `Stripe error: ...` on `POST /checkout/` or approving a return | Double-check `STRIPE_SECRET_KEY` in `.env` is a valid **test** key (`sk_test_...`) |
+| Order stays `payment_status: pending` after paying | The `stripe listen` terminal isn't running, or `STRIPE_WEBHOOK_SECRET` doesn't match |
+| `sqlalchemy.exc.DataError: Data truncated for column 'order_status'` | You haven't run the returns/refunds `ALTER TABLE` migration yet — see "Returns/Refunds schema" above |
+| `(1146, "Table 'ecommerce_db.return_requests' doesn't exist")` | Same — run the schema migration section above |
+| `AttributeError: module 'bcrypt' has no attribute '__about__'` on register/login | `bcrypt`/`passlib` version mismatch — run `pip install "bcrypt==4.0.1"` and restart `uvicorn` |
+| `ResponseValidationError` on `GET /notifications/` (`timestamp` is `None`) | A notification was created without a timestamp (usually from an older Django code path) — run `UPDATE notifications SET timestamp = NOW() WHERE timestamp IS NULL;`, and make sure `storefront/notifications.py` sets `timestamp=timezone.now()` explicitly |
+| Notifications page shows nothing / WebSocket won't connect | Make sure you're logged in and the backend is running on port 8000 |
+| `[email] SMTP not configured — skipped ...` | Expected if `SMTP_*` isn't filled in — notifications still get created, only the email is skipped |
+| Django `django.db.utils.OperationalError` on startup | `admin_panel/.env` has the wrong MySQL credentials, or MySQL isn't running |
+| Django admin shows no Users/Products/Orders | Start `uvicorn` at least once before running Django's `migrate` |
+| Order status changed in Django doesn't update instantly in `notifications.html` | Expected — see the "one honest limitation" note above |
+| `admin-returns.html` shows "AdminReturnsAPI is not defined" | `js/api.js` is missing the `AdminReturnsAPI` block — re-add it, save, and hard-refresh (Ctrl+F5) |
+| 404 on pages you know exist | Check whether your static server is running from inside `frontend/` (URLs have no `/frontend/` prefix) or from the project root (URLs need it) — match the URL to how `python -m http.server` was started |
+| Google/Auth0 login shows `invalid_request: couldn't find your session` | Stale Auth0 session cookie from overlapping login attempts — clear cookies for `*.auth0.com`, close all app tabs, and retry once in a fresh tab. This is a session-hygiene issue, unrelated to the API/backend |
+| `Access denied for user 'root'@'localhost'` | Your password in `.env` is wrong |
+| `Unknown database 'ecommerce_db'` | You skipped the `CREATE DATABASE ecommerce_db;` step |
+| `Can't connect to MySQL server` | MySQL server isn't running |
