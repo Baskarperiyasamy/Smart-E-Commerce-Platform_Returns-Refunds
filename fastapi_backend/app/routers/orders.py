@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -27,7 +29,6 @@ def list_all_orders(
     db: Session = Depends(get_db),
     _: models.User = Depends(require_roles("admin", "staff")),
 ):
-    """Admin/staff-only — every order across every customer, for fulfilment tracking."""
     return db.query(models.Order).order_by(models.Order.created_at.desc()).all()
 
 
@@ -54,13 +55,19 @@ def update_order_status(
     db: Session = Depends(get_db),
     _: models.User = Depends(require_roles("admin", "staff")),
 ):
-    """Admin/staff-only — move an order through pending -> paid -> shipped -> delivered
-    (or cancelled). Payment status itself is only ever changed by the Stripe webhook."""
+    """Admin/staff-only. Also records shipped_at/delivered_at timestamps
+    used for tracking display on the admin frontend."""
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
 
     order.order_status = payload.order_status
+
+    if payload.order_status == models.OrderStatusEnum.shipped:
+        order.shipped_at = datetime.utcnow()
+    elif payload.order_status == models.OrderStatusEnum.delivered:
+        order.delivered_at = datetime.utcnow()
+
     db.commit()
     db.refresh(order)
 

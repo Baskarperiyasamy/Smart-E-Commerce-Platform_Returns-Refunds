@@ -14,5 +14,5 @@
 const AUTH0_CONFIG = {
   domain: "dev-506ii863z2v6snnk.us.auth0.com",
   clientId: "PDC1DenKuX4XT0PacmH69x1kQr8D5D9b",
-  redirectUri: window.location.origin + "/frontend/login.html",
+  redirectUri: window.location.origin + "/login.html",
 };

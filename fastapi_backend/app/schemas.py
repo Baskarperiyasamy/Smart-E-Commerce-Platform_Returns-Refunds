@@ -23,7 +23,6 @@ class RefreshRequest(BaseModel):
 
 
 class Auth0LoginRequest(BaseModel):
-    # Access token issued by Auth0 after the user completes Google/Facebook login
     auth0_access_token: str
 
 
@@ -80,7 +79,7 @@ class CartAdd(BaseModel):
 
 class CartUpdate(BaseModel):
     cart_item_id: str
-    quantity: int = Field(..., gt=0, description="New quantity. Use DELETE /cart/remove to remove an item entirely.")
+    quantity: int = Field(..., gt=0)
 
 
 class CartRemove(BaseModel):
@@ -97,7 +96,6 @@ class CartOut(BaseModel):
 
 
 class CartItemDetail(BaseModel):
-    """A single cart line, enriched with product info and the calculated line total."""
     cart_item_id: str
     product_id: str
     product_name: str
@@ -108,7 +106,6 @@ class CartItemDetail(BaseModel):
 
 
 class CartSummary(BaseModel):
-    """Full cart view with automatic calculations, per the Day 2 brief."""
     items: list[CartItemDetail]
     item_count: int
     cart_total: float
@@ -118,8 +115,6 @@ class CartSummary(BaseModel):
 
 
 # ---------- Admin / Database Viewer ----------
-# Read-only, admin-only views used by the frontend's Database Viewer page,
-# so the raw tables can be inspected without Django or a separate DB tool.
 
 class AdminCartItem(BaseModel):
     cart_item_id: str
@@ -133,7 +128,7 @@ class AdminCartItem(BaseModel):
     item_total: float
 
 
-# ---------- Day 3: Checkout / Orders / Payments ----------
+# ---------- Orders / Payments ----------
 
 class OrderItemOut(BaseModel):
     id: str
@@ -159,13 +154,11 @@ class PaymentOut(BaseModel):
         from_attributes = True
 
 
-# ---------- Day 5: Customer Experience & Insights Module — Returns ----------
-# Defined before OrderOut so OrderOut can embed a return_request.
+# ---------- Returns ----------
 
 class ReturnRequestCreate(BaseModel):
-    """POST /orders/{order_id}/return body."""
-    reason: str = Field(..., min_length=3, max_length=255, description="Why the customer wants to return this order.")
-    comment: Optional[str] = Field(None, max_length=1000, description="Optional extra detail from the customer.")
+    reason: str = Field(..., min_length=3, max_length=255)
+    comment: Optional[str] = Field(None, max_length=1000)
 
 
 class ReturnRequestOut(BaseModel):
@@ -174,11 +167,19 @@ class ReturnRequestOut(BaseModel):
     user_id: str
     reason: str
     comment: Optional[str]
+    admin_note: Optional[str] = None
     status: ReturnStatusEnum
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class ReturnDecisionRequest(BaseModel):
+    """Optional body for POST /admin/returns/{id}/approve and /reject —
+    lets the admin leave a note explaining the decision, sent to the
+    customer as part of their notification/email."""
+    admin_note: Optional[str] = Field(None, max_length=1000)
 
 
 class OrderOut(BaseModel):
@@ -190,6 +191,8 @@ class OrderOut(BaseModel):
     stripe_checkout_session_id: Optional[str]
     created_at: datetime
     updated_at: datetime
+    shipped_at: Optional[datetime] = None
+    delivered_at: Optional[datetime] = None
     items: list[OrderItemOut]
     payments: list[PaymentOut] = []
     return_request: Optional[ReturnRequestOut] = None
@@ -198,9 +201,25 @@ class OrderOut(BaseModel):
         from_attributes = True
 
 
+class AdminReturnRequestOut(BaseModel):
+    """Used by GET /admin/returns — embeds the full order so the admin
+    frontend can show tracking dates, items, and totals without a second
+    API call per row."""
+    id: str
+    order_id: str
+    user_id: str
+    reason: str
+    comment: Optional[str]
+    admin_note: Optional[str] = None
+    status: ReturnStatusEnum
+    created_at: datetime
+    order: OrderOut
+
+    class Config:
+        from_attributes = True
+
+
 class CheckoutResponse(BaseModel):
-    """Returned by POST /checkout. Frontend redirects the browser to
-    checkout_url to complete payment on Stripe's hosted page."""
     order_id: str
     checkout_session_id: str
     checkout_url: str
@@ -210,11 +229,10 @@ class CheckoutResponse(BaseModel):
 
 
 class OrderStatusUpdate(BaseModel):
-    """Admin/staff use only — to move an order along its fulfilment lifecycle."""
     order_status: OrderStatusEnum
 
 
-# ---------- Day 4: Notifications ----------
+# ---------- Notifications ----------
 
 class NotificationOut(BaseModel):
     id: str
@@ -228,6 +246,4 @@ class NotificationOut(BaseModel):
 
 
 class NotificationMarkRead(BaseModel):
-    """POST /notifications/read body. Omit notification_id to mark every
-    notification for the current user as read; provide it to mark just one."""
     notification_id: Optional[str] = None

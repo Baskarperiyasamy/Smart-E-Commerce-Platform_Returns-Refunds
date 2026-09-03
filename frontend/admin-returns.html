@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Return Requests · Admin · SmartCart</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+<style>
+  .admin-shell { max-width: 1200px; margin: 0 auto; padding: 48px 24px 80px; }
+
+  .filters-row { display: flex; gap: 12px; flex-wrap: wrap; margin: 20px 0 24px; }
+  .filters-row select, .filters-row input {
+    padding: 10px 14px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text); font-size: 13px;
+  }
+
+  table.admin-table { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  table.admin-table th {
+    text-align: left; padding: 12px 14px; background: var(--surface-2); color: var(--text-muted);
+    font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+    border-bottom: 1px solid var(--border);
+  }
+  table.admin-table td { padding: 12px 14px; border-bottom: 1px solid var(--border); color: var(--text); }
+  table.admin-table tr:hover td { background: var(--surface-2); cursor: pointer; }
+  table.admin-table tr:last-child td { border-bottom: none; }
+
+  .badge-status { padding: 4px 10px; border-radius: 999px; font-size: 11px; font-family: var(--font-mono); }
+  .b-pending { background: rgba(240,165,49,0.16); color: #f0a531; }
+  .b-approved { background: rgba(52,211,153,0.14); color: var(--green); }
+  .b-rejected { background: rgba(251,113,133,0.14); color: var(--rose); }
+
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    align-items: center; justify-content: center; z-index: 100; padding: 20px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal-box {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    max-width: 640px; width: 100%; max-height: 85vh; overflow-y: auto; padding: 28px;
+    box-shadow: var(--shadow);
+  }
+  .modal-box h2 { margin: 0 0 4px; }
+  .modal-close { float: right; background: none; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer; }
+
+  .tracking-row { display: flex; gap: 20px; flex-wrap: wrap; margin: 14px 0; font-size: 13px; color: var(--text-muted); }
+  .tracking-row strong { color: var(--text); display: block; font-size: 12px; }
+
+  .return-panel {
+    margin-top: 18px; padding: 16px; border-radius: 8px;
+    background: var(--surface-2); border: 1px solid var(--border);
+  }
+  .return-panel .rp-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+
+  .action-row { display: flex; gap: 10px; margin-top: 14px; }
+  .btn-approve { background: var(--green); color: #0a1f14; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 700; cursor: pointer; }
+  .btn-reject { background: var(--rose); color: #2b0a0e; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 700; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<div class="navbar">
+  <div class="brand">Smart<span>Cart</span></div>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="products.html">Products</a>
+    <a href="orders.html">My Orders</a>
+    <a href="admin-returns.html">Admin Returns</a>
+    <a href="database.html">Database</a>
+  </nav>
+  <div id="userBadge"></div>
+</div>
+
+<div class="admin-shell">
+  <h1>Return Requests</h1>
+  <p style="color:var(--text-muted);">Review, approve, or reject customer return requests.</p>
+
+  <div class="filters-row">
+    <input id="searchBox" type="text" placeholder="Order ID or customer name/email" style="min-width:260px;" />
+    <select id="statusFilter">
+      <option value="">Return status: Any</option>
+      <option value="pending">Pending</option>
+      <option value="approved">Approved</option>
+      <option value="rejected">Rejected</option>
+    </select>
+  </div>
+
+  <div id="tableArea"></div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-box" id="modalBox"></div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+  let allReturns = [];
+  let me = null;
+
+  function escapeHtml(str) {
+    if (str === null || str === undefined) return "";
+    return String(str).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  }
+
+  function fmtDate(iso) {
+    return iso ? new Date(iso).toLocaleString() : "—";
+  }
+
+  function fmtMoney(n) {
+    return "₹" + Number(n).toFixed(2);
+  }
+
+  function statusBadgeClass(s) {
+    return { pending: "b-pending", approved: "b-approved", rejected: "b-rejected" }[s] || "";
+  }
+
+  async function guardAndLoad() {
+    const area = document.getElementById("tableArea");
+    if (!Auth.isLoggedIn()) {
+      area.innerHTML = `<div class="empty-state">You need to <a href="login.html">log in</a> as an admin to view this page.</div>`;
+      return;
+    }
+    try {
+      me = await AuthAPI.me();
+    } catch {
+      area.innerHTML = `<div class="empty-state">You need to <a href="login.html">log in</a> as an admin to view this page.</div>`;
+      return;
+    }
+    if (me.role !== "admin" && me.role !== "staff") {
+      area.innerHTML = `<div class="empty-state">Admins/staff only.</div>`;
+      return;
+    }
+    await loadReturns();
+  }
+
+  async function loadReturns() {
+    const area = document.getElementById("tableArea");
+    try {
+      allReturns = await AdminReturnsAPI.list();
+      renderTable();
+    } catch (err) {
+      area.innerHTML = `<div class="empty-state">Couldn't load return requests: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function renderTable() {
+    const area = document.getElementById("tableArea");
+    const search = document.getElementById("searchBox").value.trim().toLowerCase();
+    const statusFilter = document.getElementById("statusFilter").value;
+
+    let rows = allReturns.filter(r => {
+      if (statusFilter && r.status !== statusFilter) return false;
+      if (search) {
+        const hay = (r.order_id + " " + r.order.id).toLowerCase();
+        if (!hay.includes(search)) return false;
+      }
+      return true;
+    });
+
+    if (!rows.length) {
+      area.innerHTML = `<div class="empty-state">No return requests match these filters.</div>`;
+      return;
+    }
+
+    area.innerHTML = `
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Order</th><th>Date</th><th>Total</th><th>Order Status</th>
+            <th>Payment</th><th>Return</th><th>Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => `
+            <tr onclick="openModal('${r.id}')">
+              <td>#${r.order.id.slice(0,8)}</td>
+              <td>${fmtDate(r.order.created_at)}</td>
+              <td>${fmtMoney(r.order.total_amount)}</td>
+              <td>${escapeHtml(r.order.order_status.replaceAll('_',' '))}</td>
+              <td>${escapeHtml(r.order.payment_status)}</td>
+              <td><span class="badge-status ${statusBadgeClass(r.status)}">${escapeHtml(r.status)}</span></td>
+              <td>${fmtDate(r.created_at)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    `;
+  }
+
+  function openModal(returnId) {
+    const r = allReturns.find(x => x.id === returnId);
+    if (!r) return;
+    const o = r.order;
+
+    const canAct = r.status === "pending";
+
+    document.getElementById("modalBox").innerHTML = `
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+      <h2>Order #${o.id.slice(0,8)}</h2>
+      <p style="color:var(--text-muted); font-size:13px;">${escapeHtml(o.id)}</p>
+
+      <div class="tracking-row">
+        <div><strong>Order Status</strong>${escapeHtml(o.order_status.replaceAll('_',' '))}</div>
+        <div><strong>Payment</strong>${escapeHtml(o.payment_status)}</div>
+        <div><strong>Total</strong>${fmtMoney(o.total_amount)}</div>
+      </div>
+      <div class="tracking-row">
+        <div><strong>Created</strong>${fmtDate(o.created_at)}</div>
+        <div><strong>Shipped</strong>${fmtDate(o.shipped_at)}</div>
+        <div><strong>Delivered</strong>${fmtDate(o.delivered_at)}</div>
+      </div>
+
+      <div style="margin-top:14px;">
+        <strong style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:6px;">Items</strong>
+        ${o.items.map(i => `
+          <div style="display:flex; justify-content:space-between; font-size:13px; padding:4px 0;">
+            <span>${escapeHtml(i.product_name)} × ${i.quantity}</span>
+            <span>${fmtMoney(i.item_total)}</span>
+          </div>
+        `).join("")}
+      </div>
+
+      <div class="return-panel">
+        <div class="rp-header">
+          <strong>Return Request</strong>
+          <span class="badge-status ${statusBadgeClass(r.status)}">${escapeHtml(r.status)}</span>
+        </div>
+        <p style="margin:4px 0; font-size:13px;"><strong>Reason:</strong> ${escapeHtml(r.reason)}</p>
+        ${r.comment ? `<p style="margin:4px 0; font-size:13px;"><strong>Customer comment:</strong> ${escapeHtml(r.comment)}</p>` : ""}
+        ${r.admin_note ? `<p style="margin:4px 0; font-size:13px; color:var(--text-muted);"><strong>Admin note:</strong> ${escapeHtml(r.admin_note)}</p>` : ""}
+        <p style="margin:4px 0; font-size:12px; color:var(--text-muted);">Requested ${fmtDate(r.created_at)}</p>
+
+        ${canAct ? `
+          <div class="field" style="margin-top:12px;">
+            <label for="adminNote-${r.id}">Note to customer (optional — required if rejecting)</label>
+            <textarea id="adminNote-${r.id}" rows="2" style="width:100%; padding:10px 14px; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text); font-family:var(--font-body);"></textarea>
+          </div>
+          <div id="actionError-${r.id}" class="alert error" style="display:none;"></div>
+          <div class="action-row">
+            <button class="btn-approve" onclick="doApprove('${r.id}')">Approve Return</button>
+            <button class="btn-reject" onclick="doReject('${r.id}')">Reject Return</button>
+          </div>
+        ` : `<p style="margin-top:10px; font-size:12px; color:var(--text-muted);">This return has already been reviewed — no further action needed.</p>`}
+      </div>
+    `;
+    document.getElementById("modalOverlay").classList.add("open");
+  }
+
+  function closeModal() {
+    document.getElementById("modalOverlay").classList.remove("open");
+  }
+
+  async function doApprove(returnId) {
+    const note = document.getElementById(`adminNote-${returnId}`).value.trim();
+    const errBox = document.getElementById(`actionError-${returnId}`);
+    errBox.style.display = "none";
+    if (!confirm("Approve this return? This will restock inventory and issue a refund.")) return;
+
+    try {
+      await AdminReturnsAPI.approve(returnId, note);
+      closeModal();
+      await loadReturns();
+    } catch (err) {
+      errBox.textContent = err.message;
+      errBox.style.display = "block";
+    }
+  }
+
+  async function doReject(returnId) {
+    const note = document.getElementById(`adminNote-${returnId}`).value.trim();
+    const errBox = document.getElementById(`actionError-${returnId}`);
+    errBox.style.display = "none";
+
+    if (!note) {
+      errBox.textContent = "Please add a reason before rejecting — it's sent to the customer.";
+      errBox.style.display = "block";
+      return;
+    }
+    if (!confirm("Reject this return request?")) return;
+
+    try {
+      await AdminReturnsAPI.reject(returnId, note);
+      closeModal();
+      await loadReturns();
+    } catch (err) {
+      errBox.textContent = err.message;
+      errBox.style.display = "block";
+    }
+  }
+
+  document.getElementById("searchBox").addEventListener("input", renderTable);
+  document.getElementById("statusFilter").addEventListener("change", renderTable);
+  document.getElementById("modalOverlay").addEventListener("click", (e) => {
+    if (e.target.id === "modalOverlay") closeModal();
+  });
+
+  guardAndLoad();
+</script>
+</body>
+</html>

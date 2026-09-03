@@ -159,6 +159,30 @@ const ReturnsAPI = {
 };
 
 // ---------------------------------------------------------------------
+// Day 6: Admin-side return/refund processing
+// ---------------------------------------------------------------------
+
+const AdminReturnsAPI = {
+  // Every return request, with the full order embedded (tracking dates,
+  // items, totals) — powers admin-returns.html.
+  list() { return apiRequest("/admin/returns/", { auth: true }); },
+  approve(returnId, adminNote) {
+    return apiRequest(`/admin/returns/${returnId}/approve`, {
+      method: "POST",
+      auth: true,
+      body: { admin_note: adminNote || null },
+    });
+  },
+  reject(returnId, adminNote) {
+    return apiRequest(`/admin/returns/${returnId}/reject`, {
+      method: "POST",
+      auth: true,
+      body: { admin_note: adminNote || null },
+    });
+  },
+};
+
+// ---------------------------------------------------------------------
 // Real-time WebSocket connection (order_status_updated, cart_updated)
 // ---------------------------------------------------------------------
 

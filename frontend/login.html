@@ -66,13 +66,14 @@
     alertBox.textContent = msg;
   }
 
-  document.getElementById("loginForm").addEventListener("submit", async (e) => {
+      document.getElementById("loginForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const email = document.getElementById("email").value.trim();
     const password = document.getElementById("password").value;
     try {
       await AuthAPI.login(email, password);
-      window.location.href = "products.html";
+      const me = await AuthAPI.me();
+      window.location.href = (me.role === "admin" || me.role === "staff") ? "admin-returns.html" : "products.html";
     } catch (err) {
       showError(err.message);
     }

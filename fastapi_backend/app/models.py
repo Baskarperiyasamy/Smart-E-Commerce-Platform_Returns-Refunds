@@ -82,6 +82,7 @@ class OrderStatusEnum(str, enum.Enum):
     shipped = "shipped"
     delivered = "delivered"
     return_requested = "return_requested"  # Day 5: Customer Experience & Insights Module
+    returned = "returned"                  # Day 6: Admin-side refund processing
     cancelled = "cancelled"
 
 
@@ -115,6 +116,8 @@ class Order(Base):
     # window check — it's bumped by onupdate=datetime.utcnow every time
     # order_status changes, so the last bump is when 'delivered' was set.
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    shipped_at = Column(DateTime, nullable=True)
+    delivered_at = Column(DateTime, nullable=True)
 
     user = relationship("User", back_populates="orders")
     items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
@@ -168,6 +171,9 @@ class NotificationTypeEnum(str, enum.Enum):
     order_shipped = "order_shipped"
     order_delivered = "order_delivered"
     order_return_requested = "order_return_requested"  # Day 5
+    return_approved = "return_approved"                # Day 6
+    return_rejected = "return_rejected"                # Day 6
+    refund_completed = "refund_completed"               # Day 6
 
 
 class Notification(Base):
@@ -195,8 +201,10 @@ class ReturnStatusEnum(str, enum.Enum):
 
 class ReturnRequest(Base):
     """Customer-initiated return/refund request for a delivered order.
-    One return request per order (order_id is unique) — approving/rejecting
-    is handled by staff from the Django Admin panel."""
+    One return request per order (order_id is unique). Day 6 adds the
+    admin-side processing (app/routers/admin_returns.py) that actually
+    approves/rejects these, restocks inventory, and issues the Stripe
+    refund."""
     __tablename__ = "return_requests"
 
     id = Column(String(36), primary_key=True, default=gen_uuid)
@@ -205,6 +213,7 @@ class ReturnRequest(Base):
 
     reason = Column(String(255), nullable=False)
     comment = Column(Text, nullable=True)
+    admin_note = Column(Text, nullable=True)
     status = Column(Enum(ReturnStatusEnum), default=ReturnStatusEnum.pending, nullable=False)
 
     created_at = Column(DateTime, default=datetime.utcnow)

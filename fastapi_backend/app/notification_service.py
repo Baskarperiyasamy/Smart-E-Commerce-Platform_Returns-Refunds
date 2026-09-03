@@ -13,6 +13,9 @@ EMAIL_SUBJECTS = {
     models.NotificationTypeEnum.order_shipped: "Your Order Has Shipped",
     models.NotificationTypeEnum.order_delivered: "Your Order Has Been Delivered",
     models.NotificationTypeEnum.order_return_requested: "Return Request Update",
+    models.NotificationTypeEnum.return_approved: "Return Approved",
+    models.NotificationTypeEnum.return_rejected: "Return Rejected",
+    models.NotificationTypeEnum.refund_completed: "Refund Completed",
 }
 
 
@@ -23,10 +26,8 @@ def create_notification(
     message: str,
     order_id: Optional[str] = None,
 ) -> models.Notification:
-    """Creates the Notification row, sends the matching email
-    (order confirmation / payment success-failure / shipping update), and
-    pushes a real-time order_status_updated event over WebSocket to the user.
-    """
+    """Creates the Notification row, sends the matching email, and pushes a
+    real-time order_status_updated event over WebSocket to the user."""
     notification = models.Notification(user_id=user.id, type=ntype, message=message)
     db.add(notification)
     db.commit()

@@ -15,7 +15,7 @@ notifications.html instead of instantly. See the README for more on this.
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-
+from django.utils import timezone
 from django.conf import settings
 
 from storefront.models import Notification
@@ -55,5 +55,5 @@ def send_email(to_email: str, subject: str, body: str) -> bool:
 def notify_order_status(order, ntype: str, message: str):
     """Creates the Notification row and sends the matching email. Does NOT
     push a live WebSocket event — see module docstring."""
-    Notification.objects.create(user=order.user, type=ntype, message=message)
+    Notification.objects.create(user=order.user, type=ntype, message=message, timestamp=timezone.now())
     send_email(order.user.email, EMAIL_SUBJECTS.get(ntype, "Order Update"), message)
